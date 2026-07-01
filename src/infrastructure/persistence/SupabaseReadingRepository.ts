@@ -19,16 +19,22 @@ export class SupabaseReadingRepository implements IReadingRepository {
   async load(): Promise<ReadingLog> {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('day')
+      .select('day, book_id, book_title')
       .order('day', { ascending: true });
 
     if (error) {
       throw new Error(error.message);
     }
 
-    const isoDates = (data ?? []).map((row) => row.day as string);
-    this.lastLoaded = new Set(isoDates);
-    return ReadingLog.fromISOList(isoDates);
+    const rows = data ?? [];
+    this.lastLoaded = new Set(rows.map((row) => row.day as string));
+    return ReadingLog.fromEntries(
+      rows.map((row) => ({
+        iso: row.day as string,
+        bookId: (row.book_id as string | null) ?? null,
+        bookTitle: (row.book_title as string | null) ?? null,
+      })),
+    );
   }
 
   async save(log: ReadingLog): Promise<void> {
@@ -40,14 +46,20 @@ export class SupabaseReadingRepository implements IReadingRepository {
       throw new Error('Usuário não autenticado.');
     }
 
-    const current = new Set(log.toISOList());
-    const toInsert = [...current].filter((day) => !this.lastLoaded.has(day));
+    const entries = log.toEntryList();
+    const current = new Set(entries.map((entry) => entry.iso));
+    const toInsert = entries.filter((entry) => !this.lastLoaded.has(entry.iso));
     const toDelete = [...this.lastLoaded].filter((day) => !current.has(day));
 
     if (toInsert.length > 0) {
-      const { error } = await supabase
-        .from(TABLE)
-        .insert(toInsert.map((day) => ({ user_id: user.id, day })));
+      const { error } = await supabase.from(TABLE).insert(
+        toInsert.map((entry) => ({
+          user_id: user.id,
+          day: entry.iso,
+          book_id: entry.bookId,
+          book_title: entry.bookTitle,
+        })),
+      );
       if (error) {
         throw new Error(error.message);
       }

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Book-Project",
+    "name": "Track Read",
     "slug": "Book-Project",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -35,6 +35,12 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#0F1115"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O Track Read acessa suas fotos para definir a foto do seu perfil."
         }
       ]
     ]

@@ -1,4 +1,4 @@
-import { ReadingLog } from '../../domain/entities/ReadingLog';
+import { ReadingEntry, ReadingLog } from '../../domain/entities/ReadingLog';
 import { IReadingRepository } from '../../domain/repositories/IReadingRepository';
 import { CalendarDate } from '../../domain/value-objects/CalendarDate';
 
@@ -13,11 +13,15 @@ export class ToggleReadingDay {
 
   /**
    * @param date Dia a alternar. Por padrão, hoje.
+   * @param entry Livro lido nesse dia (opcional; ignorado ao desmarcar).
    * @returns O `ReadingLog` atualizado, já persistido.
    */
-  async execute(date: CalendarDate = CalendarDate.today()): Promise<ReadingLog> {
+  async execute(
+    date: CalendarDate = CalendarDate.today(),
+    entry?: ReadingEntry,
+  ): Promise<ReadingLog> {
     const log = await this.repository.load();
-    log.toggle(date); // regra de negócio vive no aggregate
+    log.toggle(date, entry); // regra de negócio vive no aggregate
     await this.repository.save(log);
     return log;
   }

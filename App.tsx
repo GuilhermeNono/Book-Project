@@ -1,20 +1,23 @@
 import { useCallback, useEffect } from 'react';
 import { View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 
 import { theme } from './src/presentation/theme/theme';
 import { useAuthStore } from './src/presentation/store/useAuthStore';
 import { LoginScreen } from './src/presentation/screens/LoginScreen';
-import { HomeScreen } from './src/presentation/screens/HomeScreen';
+import { RootTabs } from './src/presentation/navigation/RootTabs';
 
 // Mantém a splash nativa visível até sabermos se há sessão — evita o "flash"
 // de uma tela em branco entre a splash e o primeiro conteúdo real.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 /**
- * Entry point da aplicação. Decide entre tela de login e a tela principal com
- * base na sessão do Supabase; toda a lógica de negócio vive em `src/`.
+ * Entry point da aplicação. Decide entre tela de login e a navegação
+ * principal com base na sessão do Supabase; toda a lógica de negócio vive em
+ * `src/`.
  */
 export default function App() {
   const { session, initialized, init } = useAuthStore();
@@ -34,9 +37,17 @@ export default function App() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.background }} onLayout={onLayout}>
-      <StatusBar style="light" />
-      {session ? <HomeScreen /> : <LoginScreen />}
-    </View>
+    <SafeAreaProvider>
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }} onLayout={onLayout}>
+        <StatusBar style="light" />
+        {session ? (
+          <NavigationContainer>
+            <RootTabs />
+          </NavigationContainer>
+        ) : (
+          <LoginScreen />
+        )}
+      </View>
+    </SafeAreaProvider>
   );
 }

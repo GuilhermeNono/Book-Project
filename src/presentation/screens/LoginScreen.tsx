@@ -49,7 +49,7 @@ export function LoginScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.content}>
-          <Text style={styles.title}>Meu Diário de Leitura</Text>
+          <Text style={styles.title}>Track Read</Text>
           <Text style={styles.subtitle}>
             {isSignUp ? 'Crie sua conta para começar' : 'Entre para continuar'}
           </Text>

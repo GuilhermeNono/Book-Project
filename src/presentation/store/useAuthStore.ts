@@ -2,7 +2,9 @@ import { create } from 'zustand';
 
 import { Session } from '../../domain/entities/Session';
 import { container } from '../../infrastructure/di/container';
+import { useProfileStore } from './useProfileStore';
 import { useReadingStore } from './useReadingStore';
+import { useShowcaseStore } from './useShowcaseStore';
 
 interface AuthState {
   session: Session | null;
@@ -28,6 +30,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
     if (previousUserId && previousUserId !== session?.userId) {
       // Trocou de usuário (ou saiu): limpa dados do usuário anterior.
       useReadingStore.getState().reset();
+      useShowcaseStore.getState().reset();
+      useProfileStore.getState().reset();
     }
     set({ session });
   });

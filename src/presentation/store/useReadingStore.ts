@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { ReadingLog } from '../../domain/entities/ReadingLog';
+import { ReadingEntry, ReadingLog } from '../../domain/entities/ReadingLog';
 import { ReadingStats } from '../../domain/services/ReadingStats';
 import { ReadingStatsCalculator } from '../../domain/services/ReadingStatsCalculator';
 import { CalendarDate } from '../../domain/value-objects/CalendarDate';
@@ -24,8 +24,8 @@ interface ReadingState {
 
   /** Carrega o estado inicial a partir do repositório. */
   init: () => Promise<void>;
-  /** Alterna a leitura de hoje. */
-  toggleToday: () => Promise<void>;
+  /** Alterna a leitura de hoje, opcionalmente associada a um livro da vitrine. */
+  toggleToday: (entry?: ReadingEntry) => Promise<void>;
   /** Alterna a leitura de um dia arbitrário (ex.: toque no calendário). */
   toggleDate: (iso: string) => Promise<void>;
   /** Limpa o estado (usado ao trocar de usuário/logout, para não vazar dados). */
@@ -65,9 +65,15 @@ export const useReadingStore = create<ReadingState>((set) => {
       }
     },
 
-    toggleToday: async () => {
-      const log = await container.toggleReadingDay.execute(CalendarDate.today());
-      set(project(log));
+    toggleToday: async (entry?: ReadingEntry) => {
+      try {
+        const log = await container.toggleReadingDay.execute(CalendarDate.today(), entry);
+        set(project(log));
+      } catch (err) {
+        set({
+          error: err instanceof Error ? err.message : 'Ação inválida.',
+        });
+      }
     },
 
     toggleDate: async (iso: string) => {
