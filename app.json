@@ -12,7 +12,7 @@
     "android": {
       "package": "com.guilhermenono.bookproject",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0F1115",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -26,6 +26,17 @@
       "eas": {
         "projectId": "4a97149b-3980-4d94-b063-370ecc76714b"
       }
-    }
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0F1115"
+        }
+      ]
+    ]
   }
 }
