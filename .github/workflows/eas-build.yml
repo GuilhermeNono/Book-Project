@@ -28,4 +28,26 @@ jobs:
         run: npm ci
 
       - name: Build on EAS (Android APK)
-        run: eas build --platform android --profile production --non-interactive --no-wait
+        id: eas_build
+        run: |
+          BUILD_JSON=$(eas build --platform android --profile production --non-interactive --json)
+          APK_URL=$(echo "$BUILD_JSON" | jq -r '.[0].artifacts.buildUrl')
+          APP_VERSION=$(echo "$BUILD_JSON" | jq -r '.[0].appVersion')
+          if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
+            echo "Build did not produce an APK URL — aborting version publish." >&2
+            exit 1
+          fi
+          echo "apk_url=$APK_URL" >> "$GITHUB_OUTPUT"
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Publish new version to Supabase
+        run: |
+          curl -sf -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/app_versions" \
+            -H "apikey: ${{ secrets.SUPABASE_SECRET_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SECRET_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d "$(jq -nc \
+                --arg version "${{ steps.eas_build.outputs.app_version }}" \
+                --arg apk_url "${{ steps.eas_build.outputs.apk_url }}" \
+                '{version: $version, apk_url: $apk_url}')"

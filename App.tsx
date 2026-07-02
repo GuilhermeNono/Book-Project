@@ -7,8 +7,10 @@ import * as SplashScreen from 'expo-splash-screen';
 
 import { theme } from './src/presentation/theme/theme';
 import { useAuthStore } from './src/presentation/store/useAuthStore';
+import { useUpdateStore } from './src/presentation/store/useUpdateStore';
 import { LoginScreen } from './src/presentation/screens/LoginScreen';
 import { RootTabs } from './src/presentation/navigation/RootTabs';
+import { UpdateModal } from './src/presentation/components/UpdateModal';
 
 // Mantém a splash nativa visível até sabermos se há sessão — evita o "flash"
 // de uma tela em branco entre a splash e o primeiro conteúdo real.
@@ -21,10 +23,15 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
  */
 export default function App() {
   const { session, initialized, init } = useAuthStore();
+  const checkForUpdate = useUpdateStore((s) => s.check);
 
   useEffect(() => {
     init();
   }, [init]);
+
+  useEffect(() => {
+    checkForUpdate();
+  }, [checkForUpdate]);
 
   const onLayout = useCallback(() => {
     if (initialized) {
@@ -47,6 +54,7 @@ export default function App() {
         ) : (
           <LoginScreen />
         )}
+        <UpdateModal />
       </View>
     </SafeAreaProvider>
   );

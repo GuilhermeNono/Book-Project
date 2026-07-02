@@ -50,6 +50,13 @@ O app tem três abas: **Leitura**, **Vitrine** e **Perfil**.
 - Sessão persistida no dispositivo — o app abre direto na tela de Leitura
   se você já estiver logado.
 
+### 🔄 Aviso de atualização
+- Como o app **não é publicado na Play Store** (distribuição via APK gerado
+  pelo EAS), não existe atualização automática do sistema.
+- No boot, o app consulta a versão mais recente publicada e, se houver uma mais
+  nova que a instalada, mostra um pop-up dispensável com um botão para baixar
+  o APK atualizado.
+
 ---
 
 ## 🏗️ Arquitetura
@@ -150,6 +157,23 @@ npm run web        # build/dev no navegador
 
 > ⚠️ Variáveis `EXPO_PUBLIC_*` são embutidas no bundle em build-time. Depois
 > de editar o `.env`, reinicie com `npx expo start -c` para limpar o cache.
+
+Rode as duas migrações em `migrations/` no SQL Editor do Supabase, na ordem dos
+nomes dos arquivos (o segundo depende do primeiro só cronologicamente, não há
+foreign key entre eles).
+
+### 🤖 CI/CD (build automático + aviso de atualização)
+
+Todo push em `master` dispara um build de produção no EAS e, ao terminar,
+publica a versão + link do APK numa tabela do Supabase — é isso que alimenta o
+pop-up de atualização no app. Para isso funcionar, configure estes *secrets* no
+GitHub (`Settings → Secrets and variables → Actions`):
+
+| Secret | Valor |
+| --- | --- |
+| `EXPO_TOKEN` | Token de acesso da Expo (já necessário antes, para `eas build`) |
+| `SUPABASE_URL` | URL do projeto Supabase (mesma de `EXPO_PUBLIC_SUPABASE_URL`) |
+| `SUPABASE_SECRET_KEY` | Secret key (`sb_secret_...`) do Supabase, em Project Settings → API Keys — **nunca** coloque no `.env` do app |
 
 ---
 
