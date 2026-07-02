@@ -18,13 +18,17 @@ interface ReadingState {
   /** Datas marcadas em ISO — projeção da UI a partir do `ReadingLog`. */
   markedDates: string[];
   stats: ReadingStats;
+  /** IDs dos livros do dia marcado mais recente que teve algum livro associado. */
+  mostRecentBookIds: string[];
   loading: boolean;
+  /** Requisição de marcar/desmarcar a leitura de hoje em voo (usado pelo `ReadButton`). */
+  toggling: boolean;
   initialized: boolean;
   error: string | null;
 
   /** Carrega o estado inicial a partir do repositório. */
   init: () => Promise<void>;
-  /** Alterna a leitura de hoje, opcionalmente associada a um livro da vitrine. */
+  /** Alterna a leitura de hoje, opcionalmente associada a livro(s) da vitrine. */
   toggleToday: (entry?: ReadingEntry) => Promise<void>;
   /** Alterna a leitura de um dia arbitrário (ex.: toque no calendário). */
   toggleDate: (iso: string) => Promise<void>;
@@ -41,13 +45,16 @@ export const useReadingStore = create<ReadingState>((set) => {
   const project = (log: ReadingLog) => ({
     markedDates: log.toISOList(),
     stats: ReadingStatsCalculator.compute(log),
+    mostRecentBookIds: log.mostRecentBooks().map((book) => book.bookId),
     error: null,
   });
 
   return {
     markedDates: [],
     stats: EMPTY_STATS,
+    mostRecentBookIds: [],
     loading: false,
+    toggling: false,
     initialized: false,
     error: null,
 
@@ -66,11 +73,13 @@ export const useReadingStore = create<ReadingState>((set) => {
     },
 
     toggleToday: async (entry?: ReadingEntry) => {
+      set({ toggling: true });
       try {
         const log = await container.toggleReadingDay.execute(CalendarDate.today(), entry);
-        set(project(log));
+        set({ ...project(log), toggling: false });
       } catch (err) {
         set({
+          toggling: false,
           error: err instanceof Error ? err.message : 'Ação inválida.',
         });
       }
@@ -93,7 +102,9 @@ export const useReadingStore = create<ReadingState>((set) => {
       set({
         markedDates: [],
         stats: EMPTY_STATS,
+        mostRecentBookIds: [],
         loading: false,
+        toggling: false,
         initialized: false,
         error: null,
       });

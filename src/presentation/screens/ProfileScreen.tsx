@@ -6,6 +6,7 @@ import {
   Image,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -15,12 +16,22 @@ import {
 import { theme } from '../theme/theme';
 import { useAuthStore } from '../store/useAuthStore';
 import { useProfileStore } from '../store/useProfileStore';
+import { useReadingStore } from '../store/useReadingStore';
+import { useShowcaseStore } from '../store/useShowcaseStore';
+import { StatsCard } from '../components/StatsCard';
 
-/** Perfil: foto, nome de exibição, email e encerrar sessão. */
+/** Perfil: foto, nome de exibição, email, estatísticas, vitrine e encerrar sessão. */
 export function ProfileScreen() {
   const { session, signOut } = useAuthStore();
   const { profile, loading, initialized, error, init, updateAvatar, updateDisplayName } =
     useProfileStore();
+  const stats = useReadingStore((s) => s.stats);
+  const mostRecentBookIds = useReadingStore((s) => s.mostRecentBookIds);
+  const readingInitialized = useReadingStore((s) => s.initialized);
+  const initReading = useReadingStore((s) => s.init);
+  const showcaseBooks = useShowcaseStore((s) => s.books);
+  const showcaseInitialized = useShowcaseStore((s) => s.initialized);
+  const initShowcase = useShowcaseStore((s) => s.init);
 
   const [name, setName] = useState('');
   const [editingName, setEditingName] = useState(false);
@@ -30,6 +41,18 @@ export function ProfileScreen() {
       init();
     }
   }, [initialized, init]);
+
+  useEffect(() => {
+    if (!readingInitialized) {
+      initReading();
+    }
+  }, [readingInitialized, initReading]);
+
+  useEffect(() => {
+    if (!showcaseInitialized) {
+      initShowcase();
+    }
+  }, [showcaseInitialized, initShowcase]);
 
   useEffect(() => {
     setName(profile?.displayName ?? '');
@@ -75,7 +98,7 @@ export function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Perfil</Text>
 
         <Pressable onPress={handlePickAvatar} style={styles.avatarWrap}>
@@ -117,13 +140,52 @@ export function ProfileScreen() {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Suas estatísticas</Text>
+          <StatsCard stats={stats} />
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Sua vitrine</Text>
+          {showcaseBooks.length === 0 ? (
+            <Text style={styles.emptyHint}>Você ainda não adicionou livros à vitrine.</Text>
+          ) : (
+            showcaseBooks.map((book) => (
+              <View key={book.id} style={styles.showcaseRow}>
+                {book.coverUrl ? (
+                  <Image source={{ uri: book.coverUrl }} style={styles.showcaseCover} />
+                ) : (
+                  <View style={[styles.showcaseCover, styles.showcaseCoverPlaceholder]}>
+                    <Text style={styles.showcaseCoverPlaceholderText}>📖</Text>
+                  </View>
+                )}
+                <View style={styles.showcaseRowText}>
+                  <Text style={styles.showcaseRowTitle} numberOfLines={2}>
+                    {book.title}
+                  </Text>
+                  {book.authors.length > 0 ? (
+                    <Text style={styles.showcaseRowAuthors} numberOfLines={1}>
+                      {book.authors.join(', ')}
+                    </Text>
+                  ) : null}
+                  {mostRecentBookIds.includes(book.id) ? (
+                    <View style={styles.recentBadge}>
+                      <Text style={styles.recentBadgeText}>Lido mais recentemente</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+
         <Pressable
           onPress={signOut}
           style={({ pressed }) => [styles.signOutButton, pressed && styles.pressed]}
         >
           <Text style={styles.signOutText}>Sair</Text>
         </Pressable>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -138,10 +200,73 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     padding: theme.spacing.lg,
     alignItems: 'center',
     gap: theme.spacing.md,
+  },
+  section: {
+    width: '100%',
+    gap: theme.spacing.sm,
+  },
+  sectionTitle: {
+    color: theme.colors.text,
+    fontSize: theme.font.heading,
+    fontWeight: '700',
+    alignSelf: 'flex-start',
+  },
+  emptyHint: {
+    color: theme.colors.textMuted,
+    fontSize: theme.font.body,
+  },
+  showcaseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.sm,
+  },
+  showcaseCover: {
+    width: 44,
+    height: 64,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.surfaceMuted,
+  },
+  showcaseCoverPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  showcaseCoverPlaceholderText: {
+    fontSize: 20,
+  },
+  showcaseRowText: {
+    flex: 1,
+    gap: 2,
+  },
+  showcaseRowTitle: {
+    color: theme.colors.text,
+    fontSize: theme.font.body,
+    fontWeight: '700',
+  },
+  showcaseRowAuthors: {
+    color: theme.colors.textMuted,
+    fontSize: theme.font.caption,
+  },
+  recentBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.colors.primaryMuted,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 2,
+    marginTop: theme.spacing.xs,
+  },
+  recentBadgeText: {
+    color: theme.colors.accent,
+    fontSize: theme.font.caption,
+    fontWeight: '700',
   },
   title: {
     color: theme.colors.text,

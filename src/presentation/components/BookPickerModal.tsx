@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { FlatList, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { Book } from '../../domain/entities/Book';
 import { theme } from '../theme/theme';
@@ -6,53 +8,103 @@ import { theme } from '../theme/theme';
 interface BookPickerModalProps {
   visible: boolean;
   books: Book[];
-  onSelect: (book: Book | null) => void;
+  /** Chamado com os livros marcados quando o usuário toca em "Confirmar". */
+  onConfirm: (books: Book[]) => void;
+  /** Chamado quando o usuário indica que não leu nenhum livro específico. */
+  onSkip: () => void;
   onClose: () => void;
 }
 
-/** Modal exibido ao marcar a leitura de hoje: qual livro da vitrine foi lido. */
-export function BookPickerModal({ visible, books, onSelect, onClose }: BookPickerModalProps) {
+/** Modal exibido ao marcar a leitura de hoje: quais livros da vitrine foram lidos (seleção múltipla). */
+export function BookPickerModal({ visible, books, onConfirm, onSkip, onClose }: BookPickerModalProps) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Reseta a seleção sempre que o modal é reaberto.
+  useEffect(() => {
+    if (visible) {
+      setSelected(new Set());
+    }
+  }, [visible]);
+
+  const toggleSelected = (bookId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(bookId)) {
+        next.delete(bookId);
+      } else {
+        next.add(bookId);
+      }
+      return next;
+    });
+  };
+
+  const handleConfirm = () => {
+    onConfirm(books.filter((book) => selected.has(book.id)));
+  };
+
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <Text style={styles.title}>Qual livro você leu hoje?</Text>
+          <Text style={styles.title}>Quais livros você leu hoje?</Text>
 
           <FlatList
             data={books}
             keyExtractor={(item) => item.id}
             style={styles.list}
-            renderItem={({ item }) => (
-              <Pressable
-                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                onPress={() => onSelect(item)}
-              >
-                {item.coverUrl ? (
-                  <Image source={{ uri: item.coverUrl }} style={styles.cover} />
-                ) : (
-                  <View style={[styles.cover, styles.coverPlaceholder]}>
-                    <Text style={styles.coverPlaceholderText}>📖</Text>
-                  </View>
-                )}
-                <View style={styles.rowText}>
-                  <Text style={styles.rowTitle} numberOfLines={2}>
-                    {item.title}
-                  </Text>
-                  {item.authors.length > 0 ? (
-                    <Text style={styles.rowAuthors} numberOfLines={1}>
-                      {item.authors.join(', ')}
+            renderItem={({ item }) => {
+              const isSelected = selected.has(item.id);
+              return (
+                <Pressable
+                  style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  onPress={() => toggleSelected(item.id)}
+                >
+                  {item.coverUrl ? (
+                    <Image source={{ uri: item.coverUrl }} style={styles.cover} />
+                  ) : (
+                    <View style={[styles.cover, styles.coverPlaceholder]}>
+                      <Text style={styles.coverPlaceholderText}>📖</Text>
+                    </View>
+                  )}
+                  <View style={styles.rowText}>
+                    <Text style={styles.rowTitle} numberOfLines={2}>
+                      {item.title}
                     </Text>
-                  ) : null}
-                </View>
-              </Pressable>
-            )}
+                    {item.authors.length > 0 ? (
+                      <Text style={styles.rowAuthors} numberOfLines={1}>
+                        {item.authors.join(', ')}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Ionicons
+                    name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={24}
+                    color={isSelected ? theme.colors.primary : theme.colors.textMuted}
+                  />
+                </Pressable>
+              );
+            }}
           />
 
           <Pressable
             style={({ pressed }) => [styles.noBookButton, pressed && styles.rowPressed]}
-            onPress={() => onSelect(null)}
+            onPress={onSkip}
           >
             <Text style={styles.noBookText}>Sem livro específico</Text>
+          </Pressable>
+
+          <Pressable
+            disabled={selected.size === 0}
+            style={({ pressed }) => [
+              styles.confirmButton,
+              selected.size === 0 && styles.confirmButtonDisabled,
+              pressed && selected.size > 0 && styles.rowPressed,
+            ]}
+            onPress={handleConfirm}
+          >
+            <Text style={styles.confirmText}>
+              {selected.size > 0 ? `Confirmar (${selected.size})` : 'Confirmar'}
+            </Text>
           </Pressable>
         </Pressable>
       </Pressable>
@@ -129,5 +181,19 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontSize: theme.font.body,
     fontWeight: '600',
+  },
+  confirmButton: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.radius.md,
+    paddingVertical: theme.spacing.md,
+    alignItems: 'center',
+  },
+  confirmButtonDisabled: {
+    backgroundColor: theme.colors.surfaceMuted,
+  },
+  confirmText: {
+    color: theme.colors.text,
+    fontSize: theme.font.body,
+    fontWeight: '700',
   },
 });

@@ -17,10 +17,11 @@ import { ReadButton } from '../components/ReadButton';
 import { BookPickerModal } from '../components/BookPickerModal';
 import { StatsCard } from '../components/StatsCard';
 import { MonthCalendar } from '../components/MonthCalendar';
+import { getGreeting } from '../utils/greeting';
 
 /** Tela de leitura: botão de marcar (segurar), estatísticas e calendário. */
 export function HomeScreen() {
-  const { markedDates, stats, loading, initialized, error, init, toggleToday, toggleDate } =
+  const { markedDates, stats, toggling, initialized, error, init, toggleToday, toggleDate } =
     useReadingStore();
   const showcaseBooks = useShowcaseStore((s) => s.books);
   const showcaseInitialized = useShowcaseStore((s) => s.initialized);
@@ -66,9 +67,14 @@ export function HomeScreen() {
     setPickerVisible(true);
   };
 
-  const handleSelectBook = (book: Book | null) => {
+  const handleConfirmBooks = (books: Book[]) => {
     setPickerVisible(false);
-    toggleToday(book ? { bookId: book.id, bookTitle: book.title } : undefined);
+    toggleToday({ books: books.map((book) => ({ bookId: book.id, bookTitle: book.title })) });
+  };
+
+  const handleSkipBook = () => {
+    setPickerVisible(false);
+    toggleToday();
   };
 
   if (!initialized) {
@@ -86,7 +92,7 @@ export function HomeScreen() {
           style={{ opacity: fade, transform: [{ translateY: slide }], gap: theme.spacing.lg }}
         >
           <View style={styles.headerBlock}>
-            <Text style={styles.greeting}>Track Read</Text>
+            <Text style={styles.greeting}>{getGreeting()}</Text>
             <Text style={styles.subtitle}>
               {stats.currentStreak > 0
                 ? `🔥 ${stats.currentStreak} ${
@@ -109,13 +115,14 @@ export function HomeScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <ReadButton readToday={stats.readToday} loading={loading} onConfirm={handleConfirm} />
+        <ReadButton readToday={stats.readToday} loading={toggling} onConfirm={handleConfirm} />
       </View>
 
       <BookPickerModal
         visible={pickerVisible}
         books={showcaseBooks}
-        onSelect={handleSelectBook}
+        onConfirm={handleConfirmBooks}
+        onSkip={handleSkipBook}
         onClose={() => setPickerVisible(false)}
       />
     </SafeAreaView>
@@ -133,6 +140,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: theme.spacing.lg,
+    paddingTop: theme.spacing.xl,
     paddingBottom: theme.spacing.xl,
   },
   headerBlock: {

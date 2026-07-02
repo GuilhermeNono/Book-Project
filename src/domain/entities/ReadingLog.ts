@@ -1,12 +1,17 @@
 import { CalendarDate } from '../value-objects/CalendarDate';
 
-/** Metadados opcionais associados a um dia lido: qual livro da vitrine foi lido. */
-export interface ReadingEntry {
-  bookId: string | null;
-  bookTitle: string | null;
+/** Referência a um livro da vitrine associado a um dia lido. */
+export interface BookRef {
+  bookId: string;
+  bookTitle: string;
 }
 
-const NO_BOOK: ReadingEntry = { bookId: null, bookTitle: null };
+/** Metadados opcionais associados a um dia lido: quais livros da vitrine foram lidos. */
+export interface ReadingEntry {
+  books: BookRef[];
+}
+
+const NO_BOOK: ReadingEntry = { books: [] };
 
 /**
  * Aggregate Root do domínio: o registro de todos os dias em que houve leitura.
@@ -29,28 +34,26 @@ export class ReadingLog {
 
   /** Reconstrói o registro a partir de entradas persistidas. */
   static fromEntries(
-    entries: readonly { iso: string; bookId: string | null; bookTitle: string | null }[],
+    entries: readonly { iso: string; books: readonly BookRef[] }[],
   ): ReadingLog {
     const days = new Map<string, ReadingEntry>();
     for (const entry of entries) {
       const iso = CalendarDate.fromISO(entry.iso).toISO();
-      days.set(iso, { bookId: entry.bookId, bookTitle: entry.bookTitle });
+      days.set(iso, { books: [...entry.books] });
     }
     return new ReadingLog(days);
   }
 
   /** Reconstrói o registro a partir de uma lista de datas ISO persistidas (sem livro). */
   static fromISOList(isoDates: readonly string[]): ReadingLog {
-    return ReadingLog.fromEntries(
-      isoDates.map((iso) => ({ iso, bookId: null, bookTitle: null })),
-    );
+    return ReadingLog.fromEntries(isoDates.map((iso) => ({ iso, books: [] })));
   }
 
   isMarked(date: CalendarDate): boolean {
     return this.days.has(date.toISO());
   }
 
-  /** Metadados (livro) do dia, se houver. */
+  /** Metadados (livros) do dia, se houver. */
   entryFor(date: CalendarDate): ReadingEntry | undefined {
     return this.days.get(date.toISO());
   }
@@ -67,7 +70,7 @@ export class ReadingLog {
    * Alterna o estado de um dia. Regra de negócio: não é permitido marcar
    * leitura em datas futuras.
    *
-   * @param entry Livro associado à leitura (opcional). Ignorado ao desmarcar.
+   * @param entry Livro(s) associado(s) à leitura (opcional). Ignorado ao desmarcar.
    * @returns `true` se o dia ficou marcado, `false` se foi desmarcado.
    */
   toggle(date: CalendarDate, entry: ReadingEntry = NO_BOOK): boolean {
@@ -92,9 +95,21 @@ export class ReadingLog {
     return Array.from(this.days.keys()).sort();
   }
 
-  /** Entradas completas (data + livro), ordenadas — formato usado pela persistência. */
-  toEntryList(): { iso: string; bookId: string | null; bookTitle: string | null }[] {
+  /** Entradas completas (data + livros), ordenadas — formato usado pela persistência. */
+  toEntryList(): { iso: string; books: BookRef[] }[] {
     return this.toISOList().map((iso) => ({ iso, ...(this.days.get(iso) ?? NO_BOOK) }));
+  }
+
+  /** Livro(s) do dia marcado mais recente que tem algum livro associado (ou `[]` se nenhum). */
+  mostRecentBooks(): BookRef[] {
+    const isos = Array.from(this.days.keys()).sort().reverse();
+    for (const iso of isos) {
+      const entry = this.days.get(iso);
+      if (entry && entry.books.length > 0) {
+        return entry.books;
+      }
+    }
+    return [];
   }
 
   get total(): number {
