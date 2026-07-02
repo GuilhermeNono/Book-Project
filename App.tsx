@@ -7,6 +7,7 @@ import * as SplashScreen from 'expo-splash-screen';
 
 import { theme } from './src/presentation/theme/theme';
 import { useAuthStore } from './src/presentation/store/useAuthStore';
+import { useFriendsStore } from './src/presentation/store/useFriendsStore';
 import { useUpdateStore } from './src/presentation/store/useUpdateStore';
 import { LoginScreen } from './src/presentation/screens/LoginScreen';
 import { RootTabs } from './src/presentation/navigation/RootTabs';
@@ -24,6 +25,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 export default function App() {
   const { session, initialized, init } = useAuthStore();
   const checkForUpdate = useUpdateStore((s) => s.check);
+  const fetchPendingCount = useFriendsStore((s) => s.fetchPendingCount);
 
   useEffect(() => {
     init();
@@ -32,6 +34,12 @@ export default function App() {
   useEffect(() => {
     checkForUpdate();
   }, [checkForUpdate]);
+
+  useEffect(() => {
+    if (session) {
+      fetchPendingCount();
+    }
+  }, [session, fetchPendingCount]);
 
   const onLayout = useCallback(() => {
     if (initialized) {

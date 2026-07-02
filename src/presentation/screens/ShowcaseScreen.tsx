@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 
 import { Book } from '../../domain/entities/Book';
+import { ShowcaseGrid } from '../components/ShowcaseGrid';
 import { theme } from '../theme/theme';
 import { useShowcaseStore } from '../store/useShowcaseStore';
 
@@ -108,16 +109,12 @@ export function ShowcaseScreen() {
           <Text style={styles.sectionTitle}>Minha Vitrine</Text>
           {loading ? (
             <ActivityIndicator color={theme.colors.primary} />
-          ) : books.length === 0 ? (
-            <Text style={styles.emptyHint}>
-              Busque um livro acima e adicione à sua vitrine.
-            </Text>
           ) : (
-            <View style={styles.grid}>
-              {books.map((book) => (
-                <ShowcaseGridItem key={book.id} book={book} onRemove={removeBook} />
-              ))}
-            </View>
+            <ShowcaseGrid
+              books={books}
+              onRemove={removeBook}
+              emptyText="Busque um livro acima e adicione à sua vitrine."
+            />
           )}
         </ScrollView>
       )}
@@ -164,37 +161,6 @@ function SearchResultRow({
       >
         <Text style={styles.addButtonText}>{owned ? 'Adicionado' : 'Adicionar'}</Text>
       </Pressable>
-    </View>
-  );
-}
-
-function ShowcaseGridItem({
-  book,
-  onRemove,
-}: {
-  book: Book;
-  onRemove: (bookId: string) => void;
-}) {
-  return (
-    <View style={styles.gridItem}>
-      {book.coverUrl ? (
-        <Image source={{ uri: book.coverUrl }} style={styles.gridCover} />
-      ) : (
-        <View style={[styles.gridCover, styles.coverPlaceholder]}>
-          <Text style={styles.coverPlaceholderText}>📖</Text>
-        </View>
-      )}
-      <Pressable
-        onPress={() => onRemove(book.id)}
-        hitSlop={8}
-        style={styles.removeBadge}
-        accessibilityLabel={`Remover ${book.title} da vitrine`}
-      >
-        <Text style={styles.removeBadgeText}>×</Text>
-      </Pressable>
-      <Text style={styles.gridTitle} numberOfLines={2}>
-        {book.title}
-      </Text>
     </View>
   );
 }
@@ -303,45 +269,6 @@ const styles = StyleSheet.create({
   addButtonText: {
     color: theme.colors.text,
     fontSize: theme.font.caption,
-    fontWeight: '700',
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.spacing.md,
-  },
-  gridItem: {
-    width: '30%',
-    gap: theme.spacing.xs,
-  },
-  gridCover: {
-    width: '100%',
-    aspectRatio: 2 / 3,
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.colors.surfaceMuted,
-  },
-  gridTitle: {
-    color: theme.colors.text,
-    fontSize: theme.font.caption,
-    fontWeight: '600',
-  },
-  removeBadge: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    width: 24,
-    height: 24,
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.background,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  removeBadgeText: {
-    color: theme.colors.text,
-    fontSize: 16,
-    lineHeight: 16,
     fontWeight: '700',
   },
 });
