@@ -47,7 +47,7 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 | Linguagem | TypeScript `~6.0.3`, `strict: true` (extende `expo/tsconfig.base`) |
 | Estado | Zustand `^5` (stores em `src/presentation/store/`) |
 | Navegação | React Navigation `^7` — bottom tabs apenas (sem stack navigator) |
-| Backend | Supabase (Auth + Postgres + Storage) — chave *publishable*, RLS obrigatório |
+| Backend | Supabase (Auth + Postgres + Storage + Realtime) — chave *publishable*, RLS obrigatório |
 | Catálogo de livros | Google Books API (REST, `fetch` direto) |
 | Entry point | `index.ts` → `registerRootComponent(App)` → `App.tsx` |
 | Package Android | `com.guilhermenono.bookproject` |
@@ -65,7 +65,8 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 2. **Vitrine (ShowcaseScreen)** — busca na Google Books API com debounce de 400ms
    (`SEARCH_DEBOUNCE_MS`); adiciona/remove livros da vitrine pessoal. Ao marcar a
    leitura de hoje, se a vitrine não estiver vazia, um modal (`BookPickerModal`)
-   pergunta qual livro foi lido e salva `bookId`/`bookTitle` junto do dia.
+   permite selecionar **múltiplos** livros lidos naquele dia (ou nenhum) —
+   salvos em `reading_day_books`, ligados ao dia em `reading_days`.
 3. **Perfil (ProfileScreen)** — avatar via `expo-image-picker` (upload para o bucket
    `avatars` do Supabase Storage), nome de exibição editável, logout.
 4. **Auth (LoginScreen)** — email/senha via Supabase Auth; o projeto Supabase exige
@@ -78,6 +79,13 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
    tabela `app_versions` do Supabase; se houver uma mais nova, mostra um pop-up
    **dispensável** com "Baixar atualização" (abre a URL do APK via `Linking`) e
    "Agora não". Ver seção 11 para o fluxo completo.
+6. **Comunidade (`CommunityScreen`, aba "Comunidade")** — sistema de amigos
+   (buscar por nome de exibição, enviar convite, aceitar/recusar, desfazer
+   amizade), chat de texto em tempo real entre amigos (Supabase Realtime),
+   vitrine pública de **qualquer** usuário (mesmo sem amizade) e "Read
+   Match": comparação da atividade de leitura dos últimos 3 meses entre você
+   e um amigo aceito (streaks, total de dias lidos, distribuição mensal,
+   sobreposição de vitrine). Ver seção 12 para o fluxo completo.
 
 ## 2. Arquitetura — Clean Architecture em 4 camadas
 
@@ -90,9 +98,9 @@ composition root (`src/infrastructure/di/container.ts`).
 ```mermaid
 graph TB
     subgraph presentation ["presentation/ (React Native)"]
-        SCREENS["screens/<br/>HomeScreen · ShowcaseScreen<br/>ProfileScreen · LoginScreen"]
-        COMPONENTS["components/<br/>ReadButton · MonthCalendar<br/>StatsCard · BookPickerModal"]
-        STORES["store/ (Zustand)<br/>useAuthStore · useReadingStore<br/>useShowcaseStore · useProfileStore"]
+        SCREENS["screens/<br/>HomeScreen · ShowcaseScreen<br/>ProfileScreen · LoginScreen · CommunityScreen"]
+        COMPONENTS["components/<br/>ReadButton · MonthCalendar · StatsCard<br/>BookPickerModal · ShowcaseGrid<br/>PublicShowcaseView · ChatModal · ReadMatchModal"]
+        STORES["store/ (Zustand)<br/>useAuthStore · useReadingStore · useShowcaseStore<br/>useProfileStore · useFriendsStore · useChatStore<br/>useCommunityStore · useReadMatchStore"]
         NAV["navigation/RootTabs.tsx"]
         THEME["theme/theme.ts (design tokens)"]
     end
@@ -103,32 +111,37 @@ graph TB
         UC_SHOW["showcase/: GetShowcase · AddToShowcase · RemoveFromShowcase"]
         UC_PROF["profile/: GetProfile · UpdateAvatar · UpdateDisplayName"]
         UC_VER["CheckForUpdate"]
+        UC_FRIENDS["friends/: GetFriends · SendFriendRequest<br/>AcceptFriendRequest · DeclineFriendRequest<br/>RemoveFriend · GetPendingRequestsCount"]
+        UC_CHAT["chat/: GetConversation · SendMessage · MarkConversationRead"]
+        UC_COMMUNITY["community/: SearchUsers · GetPublicShowcase"]
+        UC_READMATCH["readmatch/: CompareReadingActivity"]
     end
 
     subgraph domain ["domain/ (zero dependência externa)"]
-        ENTITIES["entities/<br/>ReadingLog (Aggregate Root)<br/>Book · Profile · Session · AppVersion"]
+        ENTITIES["entities/<br/>ReadingLog (Aggregate Root) · Book · Profile<br/>Session · AppVersion · Friendship · Message · PublicProfile"]
         VO["value-objects/CalendarDate"]
-        SERVICES["services/<br/>ReadingStatsCalculator · ReadingStats · VersionComparator"]
-        PORTS["repositories/ (interfaces)<br/>IReadingRepository · IAuthRepository<br/>IBookCatalogRepository · IShowcaseRepository<br/>IProfileRepository · IAppVersionRepository"]
+        SERVICES["services/<br/>ReadingStatsCalculator · ReadingStats · VersionComparator<br/>FriendshipHelpers · ReadMatchCalculator · ReadMatch"]
+        PORTS["repositories/ (interfaces)<br/>IReadingRepository · IAuthRepository · IBookCatalogRepository<br/>IShowcaseRepository · IProfileRepository · IAppVersionRepository<br/>IFriendshipRepository · IMessageRepository<br/>IPublicProfileRepository · IReadMatchRepository"]
     end
 
     subgraph infrastructure ["infrastructure/ (adaptadores concretos)"]
         DI["di/container.ts<br/>(Composition Root)"]
         SUPA["supabase/client.ts (client único)"]
-        REPOS["SupabaseAuthRepository<br/>SupabaseReadingRepository<br/>SupabaseShowcaseRepository<br/>SupabaseProfileRepository<br/>SupabaseAppVersionRepository"]
+        REPOS["SupabaseAuthRepository · SupabaseReadingRepository<br/>SupabaseShowcaseRepository · SupabaseProfileRepository<br/>SupabaseAppVersionRepository · SupabaseFriendshipRepository<br/>SupabaseMessageRepository · SupabasePublicProfileRepository<br/>SupabaseReadMatchRepository"]
         GOOGLE["catalog/GoogleBooksCatalogRepository"]
     end
 
     SCREENS --> STORES
     COMPONENTS --> STORES
     STORES --> DI
-    DI --> UC_READ & UC_AUTH & UC_SHOW & UC_PROF & UC_VER
-    UC_READ & UC_AUTH & UC_SHOW & UC_PROF & UC_VER --> PORTS
+    DI --> UC_READ & UC_AUTH & UC_SHOW & UC_PROF & UC_VER & UC_FRIENDS & UC_CHAT & UC_COMMUNITY & UC_READMATCH
+    UC_READ & UC_AUTH & UC_SHOW & UC_PROF & UC_VER & UC_FRIENDS & UC_CHAT & UC_COMMUNITY & UC_READMATCH --> PORTS
     PORTS -.implementadas por.-> REPOS
     PORTS -.implementadas por.-> GOOGLE
     REPOS --> SUPA
     UC_READ --> ENTITIES & VO
     UC_VER --> SERVICES
+    UC_READMATCH --> SERVICES
     STORES --> SERVICES
     ENTITIES --> VO
 ```
@@ -146,6 +159,10 @@ abstrato é `container.ts`.
 - `HomeScreen` importa o **tipo** `Book` do domínio (uso apenas de tipagem).
 - `useAuthStore` acessa `container.authRepository` diretamente (para `getSession`
   e `onSessionChange`) em vez de passar por um caso de uso.
+- `useChatStore` acessa `container.messageRepository` diretamente (para
+  `subscribeToConversation`, o canal Realtime) — mesma exceção de
+  `authRepository`, pelo mesmo motivo (é uma assinatura/listener, não uma
+  operação única que caiba em um `execute()`).
 
 ## 3. Fluxo principal: marcar a leitura de hoje
 
@@ -161,7 +178,7 @@ sequenceDiagram
     participant UC as ToggleReadingDay
     participant AGG as ReadingLog (domínio)
     participant REPO as SupabaseReadingRepository
-    participant DB as Supabase (reading_days)
+    participant DB as Supabase (reading_days + reading_day_books)
 
     U->>RB: segura o botão por 1,5s
     RB->>HS: onConfirm()
@@ -174,13 +191,13 @@ sequenceDiagram
     end
     ST->>UC: execute(CalendarDate.today(), entry)
     UC->>REPO: load()
-    REPO->>DB: select day, book_id, book_title order by day
-    DB-->>REPO: linhas
+    REPO->>DB: select day (reading_days) + select day,book_id,book_title (reading_day_books), em paralelo
+    DB-->>REPO: linhas das duas tabelas
     REPO-->>UC: ReadingLog.fromEntries(...)  [guarda lastLoaded]
     UC->>AGG: log.toggle(date, entry)
     Note over AGG: lança Error se date.isFuture()
     UC->>REPO: save(log)
-    REPO->>DB: INSERT apenas dias novos / DELETE apenas dias removidos (diff vs lastLoaded)
+    REPO->>DB: INSERT/DELETE em reading_days (diff vs lastLoaded) + INSERT dos livros do dia em reading_day_books (cascade no DELETE)
     UC-->>ST: ReadingLog atualizado
     ST->>ST: project(log) → markedDates[] + ReadingStatsCalculator.compute(log)
     ST-->>HS: re-render (stats, calendário)
@@ -211,12 +228,16 @@ Pontos de atenção neste fluxo:
 
 ### `ReadingLog` (aggregate root) — `src/domain/entities/ReadingLog.ts`
 - Encapsula um `Map<string /*ISO*/, ReadingEntry>` privado. `ReadingEntry` =
-  `{ bookId: string | null, bookTitle: string | null }`.
+  `{ books: BookRef[] }` — **zero ou mais** livros por dia (`BookRef = { bookId,
+  bookTitle }`), não um único livro. Persistido em `reading_day_books`
+  (`(user_id, day, book_id)`), ligado a `reading_days` por `(user_id, day)`.
 - Invariantes: sem datas duplicadas (garantido pelo Map), datas sempre válidas
   (normalizadas via `CalendarDate.fromISO`), **sem marcação em data futura**
   (validado em `toggle`; `mark` direto não valida — use `toggle` em fluxos de UI).
 - Serialização para persistência: `toISOList()` (só datas, ordenadas) e
-  `toEntryList()` (datas + livro). Reconstrução: `fromEntries` / `fromISOList`.
+  `toEntryList()` (datas + livros). Reconstrução: `fromEntries` / `fromISOList`.
+  `mostRecentBooks()` retorna os livros do dia marcado mais recente que tem
+  algum livro associado.
 
 ### `ReadingStatsCalculator` (domain service)
 - Funções estáticas puras: `currentStreak` (se hoje não foi marcado, o streak é
@@ -229,6 +250,39 @@ Pontos de atenção neste fluxo:
   simplificadas (`x.y.z`) numericamente por posição. Ausência de parte ou parte
   não numérica é tratada como `0`. Usada por `CheckForUpdate`.
 
+### `Friendship` + `FriendshipHelpers` — `src/domain/entities/Friendship.ts` / `src/domain/services/FriendshipHelpers.ts`
+- `Friendship { userLow, userHigh, requestedBy, status: 'pending' | 'accepted', createdAt }`
+  — representa o par ordenado (`userLow < userHigh`) da tabela `friendships`,
+  uma única linha por amizade (não duas linhas assimétricas).
+- `FriendshipHelpers` (funções estáticas puras, sem aggregate próprio):
+  `sortedPair(a, b)` (ordena o par antes de qualquer insert/query),
+  `otherUser(friendship, selfUserId)` (retorna o outro participante, lança se
+  `selfUserId` não participar), `isRequester(friendship, userId)`.
+- Convites recusados ou amizades desfeitas são **DELETE** da linha, não um
+  terceiro status — não existe `status: 'declined'`.
+
+### `Message` — `src/domain/entities/Message.ts`
+- `Message { id: number, senderId, recipientId, body, createdAt, readAt: string | null }`
+  — mensagem de texto entre dois amigos, tabela `messages`. Entrega em tempo
+  real via Supabase Realtime (`postgres_changes`), não polling.
+
+### `PublicProfile` — `src/domain/entities/PublicProfile.ts`
+- `PublicProfile { userId, displayName: string | null, avatarUrl: string | null }`
+  — perfil de **outro** usuário (resultado de busca, membro da lista de
+  amigos). Deliberadamente separado de `Profile`: nunca deve ser passado para
+  `UpdateAvatar`/`UpdateDisplayName` (casos de uso self-only).
+
+### `ReadMatch` + `ReadMatchCalculator` (domain service) — `src/domain/services/ReadMatch.ts` / `ReadMatchCalculator.ts`
+- Read model `ReadMatch { self: ReadingStats, friend: ReadingStats, monthly: MonthBreakdown[], showcaseOverlapCount, daysBothRead, leader: {...} }`
+  — resultado da comparação "Read Match" entre o usuário atual e um amigo.
+- `ReadMatchCalculator` reaproveita `ReadingStatsCalculator`/`ReadingLog` sem
+  reimplementar streak/total: `windowStart(today)` calcula o primeiro dia do
+  mês que é 2 meses antes do mês atual (janela de **3 meses civis**, não 90
+  dias corridos); `last3MonthsWindow(log, today)` recorta um `ReadingLog`
+  completo para essa janela; `compute(selfLog, friendLog, selfShowcase,
+  friendShowcase, today?)` monta o `ReadMatch` completo, incluindo `leader`
+  (quem está na frente em cada indicador: `'self' | 'friend' | 'tie'`).
+
 ### Entidades simples (interfaces, não classes)
 - `Book { id, title, authors: string[], coverUrl: string | null }`
 - `Profile { userId, displayName: string | null, avatarUrl: string | null }`
@@ -238,16 +292,26 @@ Pontos de atenção neste fluxo:
 
 ## 5. Banco de dados (Supabase / Postgres)
 
-Schema em duas migrações idempotentes, nesta ordem:
-[`migrations/010720261153.sql`](migrations/010720261153.sql) (schema principal) e
-[`migrations/010720261530.sql`](migrations/010720261530.sql) (`app_versions`) —
-rode ambas no SQL Editor do Supabase (não há CLI de migração configurada; nome
-do arquivo é o timestamp `DDMMYYYYHHMM`). **Toda tabela tem RLS habilitado**;
-`reading_days`/`showcase_books` usam `auth.uid() = user_id` para
-select/insert/delete, `profiles` usa update em vez de delete, e
+Schema em quatro migrações idempotentes, nesta ordem:
+[`migrations/010720261153.sql`](migrations/010720261153.sql) (schema principal),
+[`migrations/010720261530.sql`](migrations/010720261530.sql) (`app_versions`),
+[`migrations/010720262200.sql`](migrations/010720262200.sql) (`reading_day_books`
+— múltiplos livros por dia) e
+[`migrations/010720262330.sql`](migrations/010720262330.sql) (funcionalidades
+sociais: `friendships`, `messages`, `are_friends()`, Realtime, policies
+públicas em `profiles`/`showcase_books`, policies de amigos em
+`reading_days`/`reading_day_books`) — rode todas em ordem no SQL Editor do
+Supabase (não há CLI de migração configurada; nome do arquivo é o timestamp
+`DDMMYYYYHHMM`). **Toda tabela tem RLS habilitado**; `reading_days`/
+`reading_day_books`/`showcase_books` usam `auth.uid() = user_id` para
+select/insert/delete própria, `profiles` usa update em vez de delete,
 `app_versions` só tem policy de **select público** (`using (true)`) — não há
-policy de insert/update/delete porque só a *secret key* do CI escreve
-nela, e essa key ignora RLS.
+policy de insert/update/delete porque só a *secret key* do CI escreve nela, e
+essa key ignora RLS. As tabelas sociais adicionam policies **aditivas** de
+select público (`profiles`, `showcase_books`, `using (true)`) ou escopadas a
+amizade aceita (`reading_days`/`reading_day_books`, via `are_friends()`) —
+RLS combina policies da mesma operação com OR, então as policies antigas
+continuam valendo.
 
 ```mermaid
 erDiagram
@@ -257,8 +321,15 @@ erDiagram
     reading_days {
         uuid user_id PK,FK
         date day PK
-        text book_id "nullable — snapshot"
-        text book_title "nullable — snapshot"
+        text book_id "vestigial — nullable, ver reading_day_books"
+        text book_title "vestigial — nullable, ver reading_day_books"
+        timestamptz created_at
+    }
+    reading_day_books {
+        uuid user_id PK,FK
+        date day PK
+        text book_id PK "snapshot — sem FK para showcase_books"
+        text book_title
         timestamptz created_at
     }
     profiles {
@@ -285,15 +356,36 @@ erDiagram
         text release_notes "nullable"
         timestamptz created_at
     }
+    friendships {
+        uuid user_low PK,FK "par ordenado: user_low < user_high"
+        uuid user_high PK,FK
+        uuid requested_by FK
+        text status "'pending' | 'accepted'"
+        timestamptz created_at
+        timestamptz responded_at "nullable"
+    }
+    messages {
+        bigint id PK "identity"
+        uuid sender_id FK
+        uuid recipient_id FK
+        text body
+        timestamptz created_at
+        timestamptz read_at "nullable"
+    }
 
     auth_users ||--o{ reading_days : "on delete cascade"
+    reading_days ||--o{ reading_day_books : "on delete cascade, via (user_id, day)"
     auth_users ||--o| profiles : "on delete cascade"
     auth_users ||--o{ showcase_books : "on delete cascade"
     auth_users ||--o| storage_avatars : "escrita restrita ao dono"
+    auth_users ||--o{ friendships : "on delete cascade (user_low/user_high/requested_by)"
+    auth_users ||--o{ messages : "on delete cascade (sender_id/recipient_id)"
 ```
 
 > `app_versions` não tem relação com `auth_users` — é uma tabela global (uma
 > linha por build publicado), não escopada por usuário.
+> `reading_days.book_id`/`book_title` são vestigiais desde a migração
+> `010720262200.sql` — os livros do dia vivem em `reading_day_books`.
 
 Decisões de modelagem que agentes precisam respeitar:
 
@@ -313,6 +405,25 @@ Decisões de modelagem que agentes precisam respeitar:
   é sempre `order by created_at desc limit 1`. Não crie constraint de unicidade
   em `version`; builds re-executados manualmente no mesmo dia podem duplicar,
   o que é inofensivo (o `order by created_at` resolve o desempate).
+- `reading_day_books` guarda **zero ou mais** livros por dia (chave
+  `(user_id, day, book_id)`, FK composta para `(user_id, day)` de
+  `reading_days` com `on delete cascade`), substituindo o antigo modelo de um
+  único livro por dia. `book_id`/`book_title` continuam sendo um snapshot
+  desnormalizado (sem FK para `showcase_books`), mesma lógica de antes.
+- `friendships` é modelada como **par ordenado** (`user_low < user_high`,
+  `check` na tabela) com **uma única linha por amizade**, em vez de duas
+  linhas assimétricas (uma por direção). Isso torna "X e Y são amigos?" uma
+  consulta de uma linha só e evita o caso de só uma das duas linhas ser
+  atualizada/existir. Toda leitura/escrita por par deve ordenar os dois
+  `userId`s antes (`FriendshipHelpers.sortedPair`) — nunca monte a chave
+  primária sem passar por esse helper.
+- A função `public.are_friends(a, b)` (SQL, `security definer`) centraliza a
+  checagem "amizade aceita entre a e b" e é reutilizada pelas policies de
+  `messages`, `reading_days` e `reading_day_books` — não duplique essa
+  subquery em novas policies, chame a função.
+- Convites de amizade recusados ou amizades desfeitas são **DELETE** da linha
+  em `friendships`, não um status `'declined'` — não há cooldown para
+  reenviar um convite depois de recusado.
 
 ## 6. Autenticação e ciclo de vida da sessão
 
@@ -329,7 +440,7 @@ flowchart TD
 
     subgraph listener ["onAuthStateChange (registrado na criação da store)"]
         EVT[evento de sessão] --> CHANGED{userId mudou?}
-        CHANGED -- "sim (troca de usuário/logout)" --> RESET["reset() em useReadingStore,<br/>useShowcaseStore, useProfileStore"]
+        CHANGED -- "sim (troca de usuário/logout)" --> RESET["reset() em useReadingStore, useShowcaseStore,<br/>useProfileStore, useFriendsStore, useChatStore,<br/>useCommunityStore, useReadMatchStore"]
         CHANGED -- não --> SETONLY["set({ session })"]
         RESET --> SETONLY
     end
@@ -365,8 +476,12 @@ flowchart TD
 - Animações usam a **Animated API do React Native core** (não Reanimated — não
   está instalado).
 - Navegação: apenas `createBottomTabNavigator` com rotas `Leitura`, `Vitrine`,
-  `Perfil` (tipadas em `RootTabParamList`). Ícones: Ionicons via
-  `@expo/vector-icons`. Não há stack — modais são `Modal`/estado local.
+  `Comunidade`, `Perfil` (tipadas em `RootTabParamList`). Ícones: Ionicons via
+  `@expo/vector-icons`. Não há stack — modais são `Modal`/estado local. A aba
+  `Comunidade` usa `tabBarBadge` para o contador de pedidos de amizade
+  pendentes (`useFriendsStore().pendingCount`); as subtelas sociais (chat,
+  vitrine pública, Read Match) são `Modal`s abertos a partir de estado local
+  em `CommunityScreen`, não rotas novas — mantém a invariante "sem stack".
 
 ## 8. Configuração, build e CI/CD
 
@@ -441,34 +556,47 @@ Book-Project/
 ├── .env / .env.example         # EXPO_PUBLIC_* (Supabase + Google Books)
 ├── migrations/
 │   ├── 010720261153.sql        # Schema principal idempotente (tabelas + RLS + bucket avatars)
-│   └── 010720261530.sql        # app_versions (idempotente) — rode depois do schema principal
+│   ├── 010720261530.sql        # app_versions (idempotente) — rode depois do schema principal
+│   ├── 010720262200.sql        # reading_day_books (múltiplos livros por dia) — rode depois de app_versions
+│   └── 010720262330.sql        # friendships, messages, are_friends(), Realtime, policies sociais
 ├── .github/workflows/
 │   └── eas-build.yml           # push master → EAS build Android production → publica versão no Supabase
 ├── assets/                     # Ícones, splash, adaptive icons Android
 └── src/
     ├── domain/
-    │   ├── entities/           # ReadingLog (classe/aggregate), Book, Profile, Session, AppVersion (interfaces)
+    │   ├── entities/           # ReadingLog (classe/aggregate), Book, Profile, Session, AppVersion,
+    │   │                       # Friendship, Message, PublicProfile (interfaces)
     │   ├── value-objects/      # CalendarDate
-    │   ├── services/           # ReadingStats (read model), ReadingStatsCalculator, VersionComparator
-    │   └── repositories/       # I*Repository (6 ports)
+    │   ├── services/           # ReadingStats/ReadingStatsCalculator, VersionComparator,
+    │   │                       # FriendshipHelpers, ReadMatch/ReadMatchCalculator
+    │   └── repositories/       # I*Repository (10 ports)
     ├── application/use-cases/  # 1 classe por caso de uso, método execute()
     │   ├── GetReadingLog.ts · ToggleReadingDay.ts · SearchBooks.ts · CheckForUpdate.ts
     │   ├── auth/               # SignIn, SignUp, SignOut
     │   ├── profile/            # GetProfile, UpdateAvatar, UpdateDisplayName
-    │   └── showcase/           # GetShowcase, AddToShowcase, RemoveFromShowcase
+    │   ├── showcase/           # GetShowcase, AddToShowcase, RemoveFromShowcase
+    │   ├── friends/            # GetFriends, SendFriendRequest, AcceptFriendRequest,
+    │   │                       # DeclineFriendRequest, RemoveFriend, GetPendingRequestsCount
+    │   ├── chat/                # GetConversation, SendMessage, MarkConversationRead
+    │   ├── community/          # SearchUsers, GetPublicShowcase
+    │   └── readmatch/          # CompareReadingActivity
     ├── infrastructure/
     │   ├── di/container.ts     # Composition root — ÚNICO lugar que instancia concretos
     │   ├── supabase/client.ts  # Client singleton (AsyncStorage, publishable key)
     │   ├── auth/               # SupabaseAuthRepository
-    │   ├── persistence/        # SupabaseReadingRepository (save diff-based), SupabaseShowcaseRepository
+    │   ├── persistence/        # SupabaseReadingRepository (save diff-based), SupabaseShowcaseRepository,
+    │   │                       # SupabaseFriendshipRepository, SupabaseMessageRepository (+ Realtime),
+    │   │                       # SupabasePublicProfileRepository, SupabaseReadMatchRepository
     │   ├── profile/            # SupabaseProfileRepository (tabela profiles + bucket avatars)
     │   ├── catalog/            # GoogleBooksCatalogRepository (fetch + normalização https)
     │   └── version/            # SupabaseAppVersionRepository (só leitura — CI escreve via Secret key)
     └── presentation/
-        ├── screens/            # HomeScreen, ShowcaseScreen, ProfileScreen, LoginScreen
-        ├── components/         # ReadButton (hold 1,5s), MonthCalendar, StatsCard, BookPickerModal, UpdateModal
-        ├── store/              # useAuthStore, useReadingStore, useShowcaseStore, useProfileStore, useUpdateStore
-        ├── navigation/         # RootTabs (bottom tabs: Leitura/Vitrine/Perfil)
+        ├── screens/            # HomeScreen, ShowcaseScreen, ProfileScreen, LoginScreen, CommunityScreen
+        ├── components/         # ReadButton (hold 1,5s), MonthCalendar, StatsCard, BookPickerModal,
+        │                       # UpdateModal, ShowcaseGrid, PublicShowcaseView, ChatModal, ReadMatchModal
+        ├── store/              # useAuthStore, useReadingStore, useShowcaseStore, useProfileStore,
+        │                       # useUpdateStore, useFriendsStore, useChatStore, useCommunityStore, useReadMatchStore
+        ├── navigation/         # RootTabs (bottom tabs: Leitura/Vitrine/Comunidade/Perfil)
         ├── theme/theme.ts      # Design tokens (dark)
         └── utils/calendar.ts   # Helpers de grade do calendário
 ```
@@ -496,6 +624,15 @@ Book-Project/
 7. **Store nova com dados por usuário** deve ter `reset()` registrado no listener de sessão do `useAuthStore`.
 8. Migrações SQL devem ser **idempotentes** (`if not exists` / `drop policy if exists`).
 9. **`app_versions` só é escrita pelo CI** (Secret key); o app/cliente nunca deve ter permissão de insert/update/delete nessa tabela.
+10. **Read Match e chat exigem amizade aceita** (`status = 'accepted'`) — sempre
+    validado via RLS/`are_friends()`, nunca só no client. `CompareReadingActivity`
+    faz uma checagem explícita antes de consultar (ver Gotchas).
+11. **`friendships` sempre grava o par ordenado** (`user_low < user_high`) —
+    nunca faça insert/update/delete por par sem passar por
+    `FriendshipHelpers.sortedPair` primeiro.
+12. **Novas policies públicas** (`using (true)`, como as de `profiles` e
+    `showcase_books`) só podem expor colunas não sensíveis — não adicione uma
+    coluna sensível a essas tabelas sem revisar a policy antes.
 
 ### Gotchas conhecidos
 
@@ -505,6 +642,28 @@ Book-Project/
 - `predictiveBackGestureEnabled: false` no Android é intencional.
 - O streak "perdoa" o dia corrente: se hoje ainda não foi marcado, a contagem parte de ontem. Não trate isso como bug.
 - `Constants.expoConfig.version` só reflete a versão *real* baked na build (útil porque `appVersionSource: "remote"` deixa o EAS resolver/incrementar a versão) — não confie no `version` estático de `app.json` como a versão instalada em produção.
+- O filtro de `postgres_changes` do Supabase Realtime só suporta **uma
+  comparação simples de coluna** — não dá para filtrar `sender_id` e
+  `recipient_id` juntos numa única assinatura. `SupabaseMessageRepository.subscribeToConversation`
+  assina só `sender_id=eq.<amigo>` (mensagens vindas do amigo); mensagens que
+  o próprio usuário envia chegam pelo retorno otimista de `send()`, não pelo
+  canal. Sincronização do próprio usuário em múltiplos dispositivos
+  simultâneos não é suportada nesta versão.
+- `alter publication supabase_realtime add table ...` **não é idempotente**
+  por padrão (falha se a tabela já foi adicionada) — sempre use o guard
+  `do $$ ... end $$` com `pg_publication_tables`, como em `010720262330.sql`.
+- Queries entre usuários que **não são amigos** (Read Match, ou tentar ler
+  `reading_days` de alguém) são bloqueadas pela RLS **silenciosamente** — o
+  Postgres devolve uma lista vazia, não um erro. Por isso
+  `CompareReadingActivity` confere a amizade explicitamente antes de
+  consultar, em vez de deixar a RLS "resolver" com uma mensagem confusa.
+- `useFriendsStore` lê `useAuthStore.getState().session?.userId` (para saber
+  "quem sou eu" ao chamar casos de uso como `GetFriends`/`AcceptFriendRequest`,
+  que precisam do id explicitamente), e `useAuthStore` importa `useFriendsStore`
+  (entre outras) para o `reset()` no listener de sessão — é uma dependência
+  circular entre os dois módulos, mas segura: nenhum dos dois acessa o outro
+  no escopo do módulo, só dentro de funções chamadas depois que ambos já
+  terminaram de carregar.
 
 ## 11. Verificação de atualização (fluxo completo)
 
@@ -563,3 +722,88 @@ Pontos de atenção:
   a store (`presentation/`), que é a fronteira certa para isso.
 - Antes do primeiro build publicar uma linha em `app_versions`, `getLatest()`
   retorna `null` e nenhum pop-up aparece — comportamento seguro por padrão.
+
+## 12. Comunidade (fluxo completo)
+
+### Convite de amizade: enviar → aceitar/recusar
+
+```mermaid
+sequenceDiagram
+    actor A as Usuário A
+    actor B as Usuário B
+    participant CS as CommunityScreen (A)
+    participant FST as useFriendsStore
+    participant UC as SendFriendRequest / AcceptFriendRequest / DeclineFriendRequest
+    participant REPO as SupabaseFriendshipRepository
+    participant DB as Supabase (friendships)
+
+    A->>CS: busca B na aba "Buscar" e toca "Adicionar"
+    CS->>FST: sendRequest(B.userId)
+    FST->>UC: execute(targetUserId, currentUserId)
+    UC->>REPO: sendRequest(targetUserId)
+    REPO->>REPO: FriendshipHelpers.sortedPair(A, B)
+    REPO->>DB: insert (user_low, user_high, requested_by=A, status='pending')
+    DB-->>REPO: linha criada (ou 23505 se já existir convite/amizade)
+    REPO-->>FST: Friendship
+    FST->>FST: init() [recarrega friends/incoming/outgoing/pendingCount]
+
+    Note over B: pendingCount (badge da aba Comunidade) reflete o convite no próximo fetchPendingCount()/init()
+
+    B->>CS: abre aba "Pedidos" → "Recebidos" → toca "Aceitar" (ou "Recusar")
+    CS->>FST: accept(A.userId) [ou decline(A.userId)]
+    FST->>UC: execute(requesterUserId, currentUserId)
+    UC->>UC: confere status='pending' e que quem aceita NÃO é requested_by
+    UC->>REPO: accept(otherUserId) [update status='accepted'] ou decline [delete]
+    REPO->>DB: update/delete por (user_low, user_high)
+    DB-->>REPO: linha atualizada/removida
+    REPO-->>FST: Friendship | void
+    FST->>FST: init()
+```
+
+### Chat: enviar mensagem e receber em tempo real
+
+```mermaid
+sequenceDiagram
+    actor A as Usuário A
+    actor B as Usuário B
+    participant CM as ChatModal (A)
+    participant CST as useChatStore (A)
+    participant UC as SendMessage
+    participant REPO as SupabaseMessageRepository
+    participant DB as Supabase (messages)
+    participant RT as Supabase Realtime
+    participant CST_B as useChatStore (B, canal aberto)
+
+    A->>CM: abre conversa com B
+    CM->>CST: openConversation(B.userId)
+    CST->>REPO: subscribeToConversation(B.userId, onMessage)
+    REPO->>RT: channel(...).on('postgres_changes', filter sender_id=eq.B) .subscribe()
+
+    A->>CM: digita e envia
+    CM->>CST: send(body)
+    CST->>UC: execute(recipientId=B, body)
+    UC->>UC: valida body.trim() não vazio
+    UC->>REPO: send(recipientId, body)
+    REPO->>DB: insert (sender_id=A, recipient_id=B) [RLS exige are_friends(A,B)]
+    DB-->>REPO: linha inserida (id, created_at reais)
+    REPO-->>CST: Message
+    CST->>CST: append otimista em messages (bolha de A aparece na hora)
+
+    DB->>RT: evento postgres_changes (INSERT)
+    RT->>CST_B: onMessage(Message) [canal de B, filtro sender_id=eq.A]
+    CST_B->>CST_B: append em messages (bolha de A aparece pro B em tempo real)
+```
+
+Pontos de atenção:
+
+- O filtro de Realtime só cobre mensagens **recebidas** (ver Gotchas na seção
+  10) — o remetente vê a própria mensagem via o retorno otimista de
+  `send()`, não pelo canal.
+- `CompareReadingActivity` (Read Match) segue o mesmo princípio de checagem
+  explícita de amizade **antes** de consultar `IReadMatchRepository`, em vez
+  de confiar apenas na RLS devolver vazio — evita uma UI confusa de "nenhuma
+  leitura" quando na verdade é "vocês não são amigos".
+- `useChatStore.closeConversation()`/`reset()` sempre fecham o canal Realtime
+  (`unsubscribe()`) antes de limpar o estado — um canal aberto sobrevivendo à
+  troca de conversa ou de usuário vazaria mensagens de uma conversa para
+  outra tela.

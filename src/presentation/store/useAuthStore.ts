@@ -2,7 +2,11 @@ import { create } from 'zustand';
 
 import { Session } from '../../domain/entities/Session';
 import { container } from '../../infrastructure/di/container';
+import { useChatStore } from './useChatStore';
+import { useCommunityStore } from './useCommunityStore';
+import { useFriendsStore } from './useFriendsStore';
 import { useProfileStore } from './useProfileStore';
+import { useReadMatchStore } from './useReadMatchStore';
 import { useReadingStore } from './useReadingStore';
 import { useShowcaseStore } from './useShowcaseStore';
 
@@ -32,6 +36,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
       useReadingStore.getState().reset();
       useShowcaseStore.getState().reset();
       useProfileStore.getState().reset();
+      useFriendsStore.getState().reset();
+      useChatStore.getState().reset();
+      useCommunityStore.getState().reset();
+      useReadMatchStore.getState().reset();
     }
     set({ session });
   });
