@@ -1,38 +1,53 @@
-import { ReadingLog } from '../../domain/entities/ReadingLog';
+import { BookRef, ReadingLog } from '../../domain/entities/ReadingLog';
 import { IReadingRepository } from '../../domain/repositories/IReadingRepository';
 import { supabase } from '../supabase/client';
 
-const TABLE = 'reading_days';
+const DAYS_TABLE = 'reading_days';
+const BOOKS_TABLE = 'reading_day_books';
 
 /**
- * Adaptador de persistência que implementa `IReadingRepository` usando uma
- * tabela Supabase (Postgres) com Row Level Security escopando cada linha ao
- * usuário autenticado (`auth.uid()`).
+ * Adaptador de persistência que implementa `IReadingRepository` usando tabelas
+ * Supabase (Postgres) com Row Level Security escopando cada linha ao usuário
+ * autenticado (`auth.uid()`).
  *
- * `save` calcula a diferença em relação ao último `load()` para enviar apenas
- * os dias que mudaram (insert/delete), em vez de reescrever a tabela inteira
- * a cada toque.
+ * Um dia lido vive em `reading_days` (o marcador do dia); os livros lidos
+ * naquele dia (zero ou mais) vivem em `reading_day_books`, ligados por
+ * `(user_id, day)`. `save` calcula a diferença em relação ao último `load()`
+ * para enviar apenas os dias que mudaram (insert/delete no nível do dia — não
+ * há suporte a editar os livros de um dia já marcado sem desmarcar/remarcar).
  */
 export class SupabaseReadingRepository implements IReadingRepository {
   private lastLoaded = new Set<string>();
 
   async load(): Promise<ReadingLog> {
-    const { data, error } = await supabase
-      .from(TABLE)
-      .select('day, book_id, book_title')
-      .order('day', { ascending: true });
+    const [daysResult, booksResult] = await Promise.all([
+      supabase.from(DAYS_TABLE).select('day').order('day', { ascending: true }),
+      supabase.from(BOOKS_TABLE).select('day, book_id, book_title'),
+    ]);
 
-    if (error) {
-      throw new Error(error.message);
+    if (daysResult.error) {
+      throw new Error(daysResult.error.message);
+    }
+    if (booksResult.error) {
+      throw new Error(booksResult.error.message);
     }
 
-    const rows = data ?? [];
-    this.lastLoaded = new Set(rows.map((row) => row.day as string));
+    const days = daysResult.data ?? [];
+    const bookRows = booksResult.data ?? [];
+
+    const booksByDay = new Map<string, BookRef[]>();
+    for (const row of bookRows) {
+      const iso = row.day as string;
+      const list = booksByDay.get(iso) ?? [];
+      list.push({ bookId: row.book_id as string, bookTitle: row.book_title as string });
+      booksByDay.set(iso, list);
+    }
+
+    this.lastLoaded = new Set(days.map((row) => row.day as string));
     return ReadingLog.fromEntries(
-      rows.map((row) => ({
+      days.map((row) => ({
         iso: row.day as string,
-        bookId: (row.book_id as string | null) ?? null,
-        bookTitle: (row.book_title as string | null) ?? null,
+        books: booksByDay.get(row.day as string) ?? [],
       })),
     );
   }
@@ -52,21 +67,35 @@ export class SupabaseReadingRepository implements IReadingRepository {
     const toDelete = [...this.lastLoaded].filter((day) => !current.has(day));
 
     if (toInsert.length > 0) {
-      const { error } = await supabase.from(TABLE).insert(
+      const { error } = await supabase.from(DAYS_TABLE).insert(
         toInsert.map((entry) => ({
           user_id: user.id,
           day: entry.iso,
-          book_id: entry.bookId,
-          book_title: entry.bookTitle,
         })),
       );
       if (error) {
         throw new Error(error.message);
       }
+
+      const bookRows = toInsert.flatMap((entry) =>
+        entry.books.map((book) => ({
+          user_id: user.id,
+          day: entry.iso,
+          book_id: book.bookId,
+          book_title: book.bookTitle,
+        })),
+      );
+      if (bookRows.length > 0) {
+        const { error: booksError } = await supabase.from(BOOKS_TABLE).insert(bookRows);
+        if (booksError) {
+          throw new Error(booksError.message);
+        }
+      }
     }
 
     if (toDelete.length > 0) {
-      const { error } = await supabase.from(TABLE).delete().in('day', toDelete);
+      // A FK de reading_day_books para reading_days tem ON DELETE CASCADE.
+      const { error } = await supabase.from(DAYS_TABLE).delete().in('day', toDelete);
       if (error) {
         throw new Error(error.message);
       }
